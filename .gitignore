@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Data artifacts (local dev DB / generated telemetry)
+data/*.sqlite
+data/*.parquet
+!data/.gitkeep
+
+# Docker
+.env
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+.pytest_cache/
