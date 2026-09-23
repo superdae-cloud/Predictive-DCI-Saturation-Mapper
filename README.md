@@ -2,14 +2,6 @@
 
 ![Demo of the interactive circuit topology: clicking a circuit, adding bandwidth, and watching status recalculate](docs/Saturation-demo.gif)
 
-**[Open the interactive demo topology](docs/topology.html)** — a
-clickable network diagram of the demo circuit fleet, color-coded by
-saturation status, where you can model adding bandwidth to any circuit
-and watch utilization, trend, predicted saturation, and status
-recalculate live. (It's a snapshot from one pipeline run, not a live
-read of `telemetry.sqlite` — download the file and open it in a browser
-to use it.)
-
 Turns capacity firefighting into a scheduling problem: ingest streaming
 telemetry from data center interconnect (DCI) circuits, model each
 circuit's trend curve, predict *when* it will hit saturation (weeks out,
