@@ -1,5 +1,13 @@
 # Predictive DCI Saturation Mapper
 
+**[Open the interactive demo topology](docs/topology.html)** — a
+clickable network diagram of the demo circuit fleet, color-coded by
+saturation status, where you can model adding bandwidth to any circuit
+and watch utilization, trend, predicted saturation, and status
+recalculate live. (It's a snapshot from one pipeline run, not a live
+read of `telemetry.sqlite` — download the file and open it in a browser
+to use it.)
+
 Turns capacity firefighting into a scheduling problem: ingest streaming
 telemetry from data center interconnect (DCI) circuits, model each
 circuit's trend curve, predict *when* it will hit saturation (weeks out,
@@ -234,18 +242,6 @@ fails.
 
 Run this on a schedule (cron, a CI job, whatever) against a live
 deployment's storage and this is the whole alerting loop end to end.
-
-## Circuit topology view
-
-`docs/topology.html` is a standalone, interactive network diagram of the
-demo fleet — open it directly in a browser. Each circuit is a clickable
-link whose fill shows current utilization against capacity, colored by
-its Stage 3 cross-check status. Click a circuit to open a page where you
-can model adding bandwidth and see utilization, trend, predicted
-saturation, and status recalculate live. It's a snapshot from one
-pipeline run (baked-in reference numbers, not a live read of
-`telemetry.sqlite`) — see the model note on each circuit's detail page
-for exactly how the recalculation works.
 
 ### Trying it without Kafka running
 
