@@ -7,9 +7,9 @@ not after the fact), and cross-check that predicted exhaustion date
 against your capacity-augment / leased-circuit pipeline — flagging any
 circuit that will saturate before its planned upgrade lands.
 
-> **Status: Stages 1–2 of 4 built.** Streaming ingestion and trend
-> forecasting are done and tested. Augment-pipeline cross-checking and
-> alerting are scoped but not yet built — see [Roadmap](#roadmap).
+> **Status: Stages 1–3 of 4 built.** Streaming ingestion, trend
+> forecasting, and augment-pipeline cross-checking are done and tested.
+> Alerting/dashboard is scoped but not yet built — see [Roadmap](#roadmap).
 
 ---
 
@@ -85,7 +85,8 @@ exists to catch.
 
 ```
 src/
-  common/models.py         TelemetrySample, SaturationForecast - shared record shapes
+  common/models.py         TelemetrySample, SaturationForecast, AugmentPlan,
+                              CrossCheckResult - shared record shapes
   generator/                synthetic telemetry (stands in for a real
     circuit_profiles.py       sFlow/NetFlow collector during development)
     telemetry_generator.py
@@ -97,9 +98,16 @@ src/
   modeling/
     trend_fit.py              pure trend-fitting math (weighted least squares)
     forecaster.py              reads storage, emits SaturationForecast per circuit
+  planning/
+    augment_pipeline.py        loads the planned-upgrade CSV
+    cross_check.py               forecast vs. plan -> CrossCheckResult per circuit
+scripts/
+  generate_demo_augment_plan.py  (re)generates a demo augment_pipeline.csv
+                                    calibrated to current forecast data
 tests/
   test_pipeline.py           generator -> parser -> storage smoke tests
   test_forecaster.py          trend-fit math + forecaster vs. the four archetypes
+  test_cross_check.py          Stage 3 status logic + CSV loading/validation
 docker-compose.yml            single-node Kafka (KRaft) + Kafka UI
 ```
 
@@ -167,6 +175,35 @@ clean linear ramp) — see `docs/architecture.md` for why.
 Useful flags: `--threshold-pct` (default 90) and `--half-life-fraction`
 (default 0.25 — see architecture notes for what this controls).
 
+## Running the cross-check (Stage 3)
+
+Stage 3 compares each circuit's forecast against a planned-upgrade table
+(`data/augment_pipeline.csv`) — the actual scheduling-conflict check this
+project exists to automate. That CSV isn't checked into git (see
+`.gitignore`): its dates are calibrated against whatever's currently in
+storage, so a committed copy would look stale the moment time passes.
+Generate one from your current demo data instead:
+
+```bash
+python -m scripts.generate_demo_augment_plan --db-path data/telemetry.sqlite
+python -m src.planning.cross_check --db-path data/telemetry.sqlite
+```
+
+The demo script deliberately sets up all four outcomes so you see each
+status at least once: `DCI-ASH-DAL-W1` gets a plan set *after* its
+predicted saturation (`at_risk` — the headline scheduling conflict),
+`DCI-NYC-CHI-W1` gets a plan set comfortably *before* (`on_track`),
+`DCI-SJC-PDX-W2` gets no plan row at all despite already being near
+saturation (`missing_plan` — arguably the most urgent status, since
+nothing is even scheduled), and `DCI-LON-FRA-W1` also gets no row but
+isn't predicted to saturate, so it's correctly not flagged
+(`not_on_track`).
+
+For your own data, hand-edit or generate `data/augment_pipeline.csv`
+yourself with columns `circuit_id,planned_upgrade_date,new_capacity_bps`
+— one row per circuit with a scheduled upgrade; circuits with no planned
+upgrade simply have no row.
+
 ### Trying it without Kafka running
 
 Both the generator and consumer work without a broker, for quick
@@ -187,10 +224,12 @@ pytest -q
 ```
 
 Covers the utilization math, parser validation, each trend archetype's
-behavior, and a generator-to-storage round trip. The Kafka producer/
-consumer branches are exercised manually against `docker compose` rather
-than in the test suite, since spinning up a real broker isn't practical
-in a unit test.
+behavior, a generator-to-storage round trip, the trend-fit math and
+forecaster behavior against all four archetypes, and the Stage 3
+cross-check's status logic (including CSV loading/validation). The Kafka
+producer/consumer branches are exercised manually against
+`docker compose` rather than in the test suite, since spinning up a real
+broker isn't practical in a unit test.
 
 ## Troubleshooting
 
@@ -210,6 +249,6 @@ in a unit test.
 - [x] Stage 1 — synthetic telemetry + streaming ingestion (Kafka) + validated storage
 - [x] Stage 2 — trend forecasting per circuit (`src/modeling/`): fit each
       circuit's history, predict days-to-saturation, quantify confidence
-- [ ] Stage 3 — augment/capacity pipeline model + cross-check against
-      predicted saturation dates
+- [x] Stage 3 — augment/capacity pipeline model (`src/planning/`) + cross-check
+      forecasts against planned upgrade dates
 - [ ] Stage 4 — alerting/flagging + a simple dashboard view of at-risk circuits

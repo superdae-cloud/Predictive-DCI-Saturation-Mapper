@@ -5,9 +5,13 @@ __pycache__/
 .venv/
 venv/
 
-# Data artifacts (local dev DB / generated telemetry)
+# Data artifacts (local dev DB / generated telemetry / generated demo plan --
+# augment_pipeline.csv is timestamp-calibrated to whatever's currently in
+# storage, so a committed copy would look stale immediately; regenerate it
+# with scripts/generate_demo_augment_plan.py instead)
 data/*.sqlite
 data/*.parquet
+data/augment_pipeline.csv
 !data/.gitkeep
 
 # Docker

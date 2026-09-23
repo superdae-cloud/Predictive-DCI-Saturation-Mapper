@@ -147,11 +147,58 @@ or Holt-Winters via `statsmodels` (already a dependency) would separate
 recency-weighting alone — worth revisiting if real (non-synthetic) traffic
 turns out noisier than this fixture set.
 
-## Extension points for Stage 3 (augment pipeline cross-check)
+## Stage 3 (augment pipeline cross-check) — how it actually works
 
-Not yet built. Planned as a small table (CSV or SQLite) of
-`(circuit_id, planned_upgrade_date, new_capacity_bps)` representing the
-capacity-augment/leased-circuit pipeline. The cross-check is then just:
-for each `SaturationForecast`, is `predicted_date < planned_upgrade_date`?
-If so, flag it — that's the scheduling conflict the whole project exists
-to surface before it becomes a fire drill.
+`src/planning/augment_pipeline.py` loads `data/augment_pipeline.csv`
+(`circuit_id, planned_upgrade_date, new_capacity_bps`) into
+`{circuit_id: AugmentPlan}`. `src/planning/cross_check.py` compares that
+against each circuit's `SaturationForecast` and produces a
+`CrossCheckResult` with one of four statuses: `not_on_track`, `on_track`,
+`at_risk`, or `missing_plan`.
+
+**Four statuses, not two.** The original plan (above) was a boolean
+"is predicted_date < planned_upgrade_date." Building it surfaced two more
+states worth naming explicitly:
+
+- A circuit not predicted to saturate at all (`not_on_track`) shouldn't
+  care whether it has a plan — a healthy circuit with no scheduled
+  upgrade isn't a problem. This check has to run *first* and short-circuit
+  the rest, or a healthy circuit with no plan would wrongly look like
+  `missing_plan`.
+- A circuit that IS predicted to saturate but has **no plan row at all**
+  (`missing_plan`) is arguably more urgent than one with a plan that's
+  merely too late (`at_risk`) — nothing is even scheduled. Collapsing
+  this into "at_risk" (treating "no plan" as "plan at infinity") would
+  bury this distinction.
+
+**Sign convention, since it's easy to get backwards** (a first draft did,
+caught immediately by testing both `at_risk` and `on_track` in
+`tests/test_cross_check.py`): `days_of_slack = planned_upgrade -
+predicted_saturation`. Positive means the upgrade lands *after* the
+circuit was already predicted to saturate — too late, `at_risk`. Negative
+means the upgrade lands first, with that many days of margin —
+`on_track`.
+
+**Why `data/augment_pipeline.csv` isn't committed to git.** Unlike
+`TelemetrySample.timestamp` (which is what it is, whenever recorded),
+this file's whole purpose is to be compared against a *current* forecast
+— and `SaturationForecast.predicted_saturation_date` is always relative
+to "now" and however much trend has accumulated in storage. A committed
+CSV would show a fixed calendar date that looks increasingly wrong (or
+just confusing) the more time passes since it was generated. Instead,
+`scripts/generate_demo_augment_plan.py` derives the demo fleet's planned
+dates from whatever's *currently* forecast — offsetting each one
+deliberately earlier or later — so the same four statuses show up
+correctly no matter when or how long you've run the generator. A real
+deployment's augment-pipeline CSV, sourced from an actual procurement
+system rather than derived from live forecasts, would reasonably be
+committed or otherwise version-controlled — this "don't commit" reasoning
+is specific to the demo/synthetic data path.
+
+## Extension points for Stage 4 (alerting / dashboard)
+
+Not yet built. `CrossCheckResult.status in ("at_risk", "missing_plan")` is
+already the exact predicate an alert would fire on — Stage 4 is mostly
+"run the Stage 1-3 pipeline on a schedule, and do something louder than
+printing to stdout when that predicate is true" (email/Slack/PagerDuty,
+or a small dashboard listing at-risk circuits).

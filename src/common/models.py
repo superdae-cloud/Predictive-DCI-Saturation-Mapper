@@ -78,3 +78,55 @@ class SaturationForecast:
     @staticmethod
     def from_json(raw: str) -> "SaturationForecast":
         return SaturationForecast(**json.loads(raw))
+
+
+@dataclass(frozen=True)
+class AugmentPlan:
+    """One row of the capacity-augment / leased-circuit pipeline (Stage 3).
+
+    Represents a planned upgrade: "circuit X gets upgraded to Y bps on date
+    Z." In production this would come from a procurement/project-tracking
+    system; here it's loaded from a small CSV (see
+    src/planning/augment_pipeline.py) since that's how most shops actually
+    track this today (see README's "Why this exists").
+    """
+
+    circuit_id: str
+    planned_upgrade_date: str      # ISO-8601 UTC, when the new capacity lands
+    new_capacity_bps: int           # provisioned capacity after the upgrade
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self))
+
+    @staticmethod
+    def from_json(raw: str) -> "AugmentPlan":
+        return AugmentPlan(**json.loads(raw))
+
+
+@dataclass(frozen=True)
+class CrossCheckResult:
+    """Output of Stage 3: does this circuit's forecast beat its augment plan?
+
+    `status` is one of:
+      - "not_on_track"     forecast predicts no saturation -- no action needed
+      - "on_track"         augment plan lands before predicted saturation -- fine
+      - "at_risk"          predicted saturation is BEFORE the planned upgrade --
+                            the scheduling conflict this whole project exists to catch
+      - "missing_plan"     forecast predicts saturation but no augment plan
+                            exists for this circuit at all -- arguably more
+                            urgent than "at_risk" since nothing is even
+                            scheduled
+    """
+
+    circuit_id: str
+    status: str
+    predicted_saturation_date: str | None
+    planned_upgrade_date: str | None
+    days_of_slack: float | None   # (planned_upgrade - predicted_saturation) in days; positive = at risk (upgrade lands after saturation), negative = safety margin
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self))
+
+    @staticmethod
+    def from_json(raw: str) -> "CrossCheckResult":
+        return CrossCheckResult(**json.loads(raw))
