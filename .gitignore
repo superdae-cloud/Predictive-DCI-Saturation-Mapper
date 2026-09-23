@@ -15,6 +15,9 @@ data/augment_pipeline.csv
 data/dashboard.html
 !data/.gitkeep
 
+# Local-only session artifacts (not meant to be pushed)
+docs/*.pdf
+
 # Docker
 .env
 
