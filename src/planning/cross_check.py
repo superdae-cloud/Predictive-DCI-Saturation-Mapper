@@ -64,6 +64,32 @@ def cross_check(forecast: SaturationForecast, plan: AugmentPlan | None) -> Cross
     )
 
 
+def compute_cross_checks(
+    db_path: str,
+    augment_plan_path: str,
+    threshold_pct: float = DEFAULT_THRESHOLD_PCT,
+) -> list[tuple[SaturationForecast, CrossCheckResult]]:
+    """Runs Stage 2 + Stage 3 for every circuit in storage.
+
+    Shared by this module's own CLI and Stage 4's alerting/dashboard driver
+    (src/alerting/pipeline.py) so both read the same forecast + cross-check
+    logic instead of duplicating this loop.
+    """
+    store = TimeSeriesStore(db_path)
+    circuit_ids = sorted(store.circuit_ids())
+    plans = load_augment_plans(augment_plan_path)
+
+    rows = []
+    for circuit_id in circuit_ids:
+        history = store.history_for_circuit(circuit_id)
+        forecast = build_forecast(circuit_id, history, threshold_pct=threshold_pct)
+        result = cross_check(forecast, plans.get(circuit_id))
+        rows.append((forecast, result))
+    store.close()
+
+    return rows
+
+
 def _format_result(r: CrossCheckResult) -> str:
     if r.status == "not_on_track":
         return f"{r.circuit_id:<20} OK       not on track to saturate"
@@ -91,22 +117,12 @@ def main():
     parser.add_argument("--threshold-pct", type=float, default=DEFAULT_THRESHOLD_PCT)
     args = parser.parse_args()
 
-    store = TimeSeriesStore(args.db_path)
-    circuit_ids = store.circuit_ids()
-    if not circuit_ids:
+    rows = compute_cross_checks(args.db_path, args.augment_plan_path, args.threshold_pct)
+    if not rows:
         print(f"No telemetry found in {args.db_path} -- run the generator/consumer first.")
-        store.close()
         return
 
-    plans = load_augment_plans(args.augment_plan_path)
-
-    results = []
-    for circuit_id in sorted(circuit_ids):
-        history = store.history_for_circuit(circuit_id)
-        forecast = build_forecast(circuit_id, history, threshold_pct=args.threshold_pct)
-        results.append(cross_check(forecast, plans.get(circuit_id)))
-    store.close()
-
+    results = [result for _, result in rows]
     for r in results:
         print(_format_result(r))
 

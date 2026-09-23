@@ -7,9 +7,9 @@ not after the fact), and cross-check that predicted exhaustion date
 against your capacity-augment / leased-circuit pipeline — flagging any
 circuit that will saturate before its planned upgrade lands.
 
-> **Status: Stages 1–3 of 4 built.** Streaming ingestion, trend
-> forecasting, and augment-pipeline cross-checking are done and tested.
-> Alerting/dashboard is scoped but not yet built — see [Roadmap](#roadmap).
+> **Status: all 4 stages built.** Streaming ingestion, trend forecasting,
+> augment-pipeline cross-checking, and alerting/dashboard are all done and
+> tested — see [Roadmap](#roadmap).
 
 ---
 
@@ -43,17 +43,16 @@ persists them to a local time-series store. This gives every later stage
 clean, ordered history to work from — real collector integration can
 replace the generator later without touching anything downstream.
 
-**Stage 2 (next):** forecast each circuit's trend curve forward and
-estimate a predicted saturation date. This is the "AI" part — regression
-/ time-series forecasting (`src/modeling/`, scaffolded but not yet
-implemented).
+**Stage 2 (built):** forecast each circuit's trend curve forward and
+estimate a predicted saturation date. This is the "AI" part — recency-
+weighted regression (`src/modeling/`) that fits each circuit's history and
+solves for when it crosses a saturation threshold.
 
-**Stage 3 (planned):** cross-reference each predicted saturation date
-against a capacity-augment / leased-circuit pipeline (planned upgrade
-dates, currently to be modeled as a simple table — a CSV or small
-database of "circuit X gets upgraded to Y Gbps on date Z").
+**Stage 3 (built):** cross-reference each predicted saturation date
+against a capacity-augment / leased-circuit pipeline — a CSV of "circuit
+X gets upgraded to Y Gbps on date Z" (`src/planning/`).
 
-**Stage 4 (planned):** flag/alert any circuit where predicted saturation
+**Stage 4 (built):** flag/alert any circuit where predicted saturation
 < planned upgrade date, i.e. the scheduling conflict this whole project
 exists to catch.
 
@@ -100,7 +99,13 @@ src/
     forecaster.py              reads storage, emits SaturationForecast per circuit
   planning/
     augment_pipeline.py        loads the planned-upgrade CSV
-    cross_check.py               forecast vs. plan -> CrossCheckResult per circuit
+    cross_check.py               forecast vs. plan -> CrossCheckResult per circuit;
+                                    also exposes compute_cross_checks(), the shared
+                                    Stage 2+3 orchestration Stage 4 reuses
+  alerting/
+    notifier.py                 pluggable alert delivery (LogNotifier, SlackWebhookNotifier)
+    dashboard.py                  renders a static HTML status snapshot
+    pipeline.py                    Stage 4 driver: cross-check -> dashboard -> alerts
 scripts/
   generate_demo_augment_plan.py  (re)generates a demo augment_pipeline.csv
                                     calibrated to current forecast data
@@ -108,6 +113,9 @@ tests/
   test_pipeline.py           generator -> parser -> storage smoke tests
   test_forecaster.py          trend-fit math + forecaster vs. the four archetypes
   test_cross_check.py          Stage 3 status logic + CSV loading/validation
+  test_notifier.py              Stage 4 notifier backends (webhook mocked/failed)
+  test_dashboard.py              dashboard HTML rendering + escaping
+  test_alerting_pipeline.py       alert dispatch only fires for flagged statuses
 docker-compose.yml            single-node Kafka (KRaft) + Kafka UI
 ```
 
@@ -204,6 +212,29 @@ yourself with columns `circuit_id,planned_upgrade_date,new_capacity_bps`
 — one row per circuit with a scheduled upgrade; circuits with no planned
 upgrade simply have no row.
 
+## Running the alerting pipeline (Stage 4)
+
+Runs the same Stage 2+3 cross-check, then writes a static HTML dashboard
+and sends one alert per flagged circuit:
+
+```bash
+python -m src.alerting.pipeline --db-path data/telemetry.sqlite \
+    --augment-plan-path data/augment_pipeline.csv \
+    --dashboard-path data/dashboard.html
+```
+
+Open `data/dashboard.html` in a browser for a color-coded table of every
+circuit's current utilization, trend, predicted saturation date, planned
+upgrade, confidence, and status. By default alerts just print to stdout
+(`LogNotifier`) — pass `--slack-webhook-url` to post them to a
+[Slack incoming webhook](https://api.slack.com/messaging/webhooks)
+instead. A failed webhook delivery falls back to printing rather than
+crashing the run; alerting should never be the reason a forecast pipeline
+fails.
+
+Run this on a schedule (cron, a CI job, whatever) against a live
+deployment's storage and this is the whole alerting loop end to end.
+
 ### Trying it without Kafka running
 
 Both the generator and consumer work without a broker, for quick
@@ -225,8 +256,9 @@ pytest -q
 
 Covers the utilization math, parser validation, each trend archetype's
 behavior, a generator-to-storage round trip, the trend-fit math and
-forecaster behavior against all four archetypes, and the Stage 3
-cross-check's status logic (including CSV loading/validation). The Kafka
+forecaster behavior against all four archetypes, the Stage 3 cross-check's
+status logic (including CSV loading/validation), and Stage 4's notifier
+backends, dashboard rendering, and alert dispatch. The Kafka
 producer/consumer branches are exercised manually against
 `docker compose` rather than in the test suite, since spinning up a real
 broker isn't practical in a unit test.
@@ -251,4 +283,5 @@ broker isn't practical in a unit test.
       circuit's history, predict days-to-saturation, quantify confidence
 - [x] Stage 3 — augment/capacity pipeline model (`src/planning/`) + cross-check
       forecasts against planned upgrade dates
-- [ ] Stage 4 — alerting/flagging + a simple dashboard view of at-risk circuits
+- [x] Stage 4 — alerting/flagging (`src/alerting/`) + a static dashboard view
+      of every circuit's status

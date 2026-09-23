@@ -195,10 +195,41 @@ system rather than derived from live forecasts, would reasonably be
 committed or otherwise version-controlled — this "don't commit" reasoning
 is specific to the demo/synthetic data path.
 
-## Extension points for Stage 4 (alerting / dashboard)
+## Stage 4 (alerting / dashboard) — how it actually works
 
-Not yet built. `CrossCheckResult.status in ("at_risk", "missing_plan")` is
-already the exact predicate an alert would fire on — Stage 4 is mostly
-"run the Stage 1-3 pipeline on a schedule, and do something louder than
-printing to stdout when that predicate is true" (email/Slack/PagerDuty,
-or a small dashboard listing at-risk circuits).
+`src/alerting/pipeline.py` is the driver: it calls
+`cross_check.compute_cross_checks()` (the same Stage 2+3 orchestration
+Stage 3's own CLI uses -- extracted specifically so this stage wouldn't
+duplicate that loop), renders a dashboard, and dispatches one alert per
+flagged circuit. `CrossCheckResult.status in ("at_risk", "missing_plan")`
+turned out to be exactly the predicate this needed, unchanged from the
+plan.
+
+**Notifier is a small Protocol, not a class hierarchy** (`src/alerting/
+notifier.py`): `LogNotifier` (default, just prints) and
+`SlackWebhookNotifier` (posts to a Slack incoming webhook) both satisfy
+`Notifier.notify(message: str) -> None`. Same shape as `producer.py`'s
+real-backend-plus-dry-run-stand-in pattern, for the same reason: tests and
+local dev shouldn't need a live webhook to exercise this code path.
+`SlackWebhookNotifier` catches its own delivery failures
+(`URLError`/`TimeoutError`/`OSError`) and falls back to printing --
+alerting is the last step of the pipeline, not the point of it, and a
+flaky webhook should never crash a forecast run.
+
+**Dashboard is static HTML, not a running app** (`src/alerting/
+dashboard.py`): one self-contained file, no server, no JS framework,
+matching this project's recurring "boring on purpose" bias (see
+storage.py's SQLite choice, augment_pipeline.py's CSV choice). Circuit IDs
+and every other rendered field go through `html.escape` -- in production
+these ultimately trace back to router/collector-supplied data, so treating
+them as untrusted before they land in an HTML page costs nothing and
+closes an XSS path if that assumption is ever wrong. Like
+`augment_pipeline.csv`, the rendered dashboard isn't committed to git (see
+`.gitignore`) -- it's a snapshot of "now," and a stale one lying around
+the repo would be actively misleading.
+
+**Not implemented:** email and PagerDuty backends (the module docstring's
+original brainstorm) — Slack covers the webhook-shaped case well enough
+that adding more backends before there's a real one in use would be
+speculative. The `Notifier` protocol is the extension point if that
+changes.
