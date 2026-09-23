@@ -1,5 +1,7 @@
 # Predictive DCI Saturation Mapper
 
+![Demo of the interactive circuit topology: clicking a circuit, adding bandwidth, and watching status recalculate](docs/Saturation-demo.gif)
+
 **[Open the interactive demo topology](docs/topology.html)** — a
 clickable network diagram of the demo circuit fleet, color-coded by
 saturation status, where you can model adding bandwidth to any circuit
