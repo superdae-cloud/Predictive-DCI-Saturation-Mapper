@@ -235,6 +235,18 @@ fails.
 Run this on a schedule (cron, a CI job, whatever) against a live
 deployment's storage and this is the whole alerting loop end to end.
 
+## Circuit topology view
+
+`docs/topology.html` is a standalone, interactive network diagram of the
+demo fleet — open it directly in a browser. Each circuit is a clickable
+link whose fill shows current utilization against capacity, colored by
+its Stage 3 cross-check status. Click a circuit to open a page where you
+can model adding bandwidth and see utilization, trend, predicted
+saturation, and status recalculate live. It's a snapshot from one
+pipeline run (baked-in reference numbers, not a live read of
+`telemetry.sqlite`) — see the model note on each circuit's detail page
+for exactly how the recalculation works.
+
 ### Trying it without Kafka running
 
 Both the generator and consumer work without a broker, for quick
